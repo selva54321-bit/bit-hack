@@ -33,4 +33,61 @@ function CustomerForm({close,done}){const [c,setC]=useState({tag:'Regular'});con
 function StockForm({product,close,done}){const [quantity,setQuantity]=useState(1),[reason,setReason]=useState('Restock');const submit=async e=>{e.preventDefault();await api(`/products/${product.id}/stock`,{method:'PATCH',body:JSON.stringify({quantity:reason==='Damage'?-quantity:quantity,reason})});done()};return <Modal title={`Adjust ${product.name}`} close={close}><form onSubmit={submit} className="form"><p className="help">Current stock: <b>{product.stock} {product.unit}s</b></p><Field label="Quantity" type="number" min="1" required value={quantity} onChange={e=>setQuantity(+e.target.value)}/><label>Reason<select value={reason} onChange={e=>setReason(e.target.value)}><option>Restock</option><option>Damage</option><option>Manual correction</option></select></label><button className="primary wide">Update inventory</button></form></Modal>}
 function SaleForm({products,customers,close,done}){const [items,setItems]=useState([]),[customerId,setCustomer]=useState(''),[paymentMode,setMode]=useState('Cash'),[paid,setPaid]=useState('');const total=useMemo(()=>items.reduce((s,i)=>s+i.quantity*i.price,0),[items]);const add=(id)=>{const p=products.find(x=>x.id===+id);if(!p)return;setItems([...items,{productId:p.id,name:p.name,price:p.price,quantity:1,max:p.stock}])};const submit=async e=>{e.preventDefault();const r=await api('/sales',{method:'POST',body:JSON.stringify({customerId:+customerId||null,paymentMode,paid:+paid||0,items})});done(r.id)};return <Modal title="Record a sale" close={close}><form onSubmit={submit} className="form sale-form"><label>Add product<select defaultValue="" onChange={e=>{add(e.target.value);e.target.value=''}}><option value="" disabled>Choose a product</option>{products.map(p=><option key={p.id} value={p.id} disabled={!p.stock}>{p.name} — {p.stock} left</option>)}</select></label><div className="cart">{items.map((x,index)=><div className="cart-row" key={index}><span>{x.name}<small>{money(x.price)} each</small></span><input type="number" min="1" max={x.max} value={x.quantity} onChange={e=>setItems(items.map((a,n)=>n===index?{...a,quantity:+e.target.value}:a))}/><b>{money(x.price*x.quantity)}</b><button type="button" onClick={()=>setItems(items.filter((_,n)=>n!==index))}>×</button></div>)}{!items.length&&<Empty text="Add products to this sale."/>}</div><div className="total">Total <b>{money(total)}</b></div><label>Customer<select value={customerId} onChange={e=>setCustomer(e.target.value)}><option value="">Walk-in customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><div className="two"><label>Payment mode<select value={paymentMode} onChange={e=>setMode(e.target.value)}><option>Cash</option><option>UPI</option><option>Card</option><option>Credit</option></select></label><Field label="Amount paid" type="number" min="0" value={paid} placeholder={total} onChange={e=>setPaid(e.target.value)}/></div><button className="primary wide" disabled={!items.length}>Complete sale · {money(total)}</button></form></Modal>}
 function Business({notify}){const [b,setB]=useState(null);useEffect(()=>{api('/business').then(setB)},[]);if(!b)return <Empty text="Loading business profile…"/>;const submit=async e=>{e.preventDefault();await api('/business',{method:'PUT',body:JSON.stringify(b)});notify('Business information updated')};return <section className="panel profile"><div className="panel-title"><div><h2>Business information</h2><p>This appears on your invoices and reports.</p></div></div><form onSubmit={submit} className="form"><Field label="Business name" value={b.name} onChange={e=>setB({...b,name:e.target.value})}/><div className="two"><Field label="Owner" value={b.owner} onChange={e=>setB({...b,owner:e.target.value})}/><Field label="Phone" value={b.phone} onChange={e=>setB({...b,phone:e.target.value})}/></div><div className="two"><Field label="GSTIN" value={b.gstin} onChange={e=>setB({...b,gstin:e.target.value})}/><Field label="Address" value={b.address} onChange={e=>setB({...b,address:e.target.value})}/></div><button className="primary">Save changes</button></form></section>}
+
+const printInvoice = async id => {
+  try {
+    const s = await api(`/sales/${id}`)
+    const win = window.open('','_blank')
+    win.document.write(`<html><head><title>Invoice #${s.id}</title><style>body{font-family:sans-serif;padding:2rem;max-width:800px;margin:0 auto} table{width:100%;border-collapse:collapse;margin:2rem 0} th,td{padding:0.5rem;text-align:left;border-bottom:1px solid #ddd} .right{text-align:right} .total{font-size:1.5em;font-weight:bold}</style></head><body><h1>INVOICE</h1><p><b>${s.business_name}</b><br>${s.address}<br>Phone: ${s.business_phone}<br>GSTIN: ${s.gstin}</p><hr><p><b>Invoice No:</b> ${s.id}<br><b>Date:</b> ${new Date(s.created_at).toLocaleString('en-IN')}<br><b>Customer:</b> ${s.customer_name||'Walk-in'}</p><table><thead><tr><th>Item</th><th>Qty</th><th class="right">Price</th><th class="right">Amount</th></tr></thead><tbody>${s.items.map(i=>`<tr><td>${i.name}</td><td>${i.quantity}</td><td class="right">${money(i.unit_price)}</td><td class="right">${money(i.quantity*i.unit_price)}</td></tr>`).join('')}</tbody></table><div class="right total">Total: ${money(s.total)}</div><div class="right">Payment Mode: ${s.payment_mode}</div><script>window.print()</script></body></html>`)
+    win.document.close()
+  } catch (err) {
+    alert(err.message)
+  }
+}
+
+function Login({onLogin}){
+  const [email,setEmail]=useState('owner@annapoorna.test'), [password,setPassword]=useState('owner123'), [error,setError]=useState('')
+  const submit = async e => {
+    e.preventDefault()
+    try {
+      const res = await api('/auth/login', { method: 'POST', body: JSON.stringify({email, password}) })
+      localStorage.setItem('vyapaar-token', res.token)
+      localStorage.setItem('vyapaar-user', JSON.stringify(res.user))
+      onLogin(res.user)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+  return <div className="overlay"><section className="modal"><div className="brand"><span>V</span><div>Vyapaar<small>FLOW</small></div></div><h2>Sign in</h2>{error && <div style={{color:'var(--red)'}}>{error}</div>}<form onSubmit={submit} className="form"><Field label="Email" type="email" required value={email} onChange={e=>setEmail(e.target.value)}/><Field label="Password" type="password" required value={password} onChange={e=>setPassword(e.target.value)}/><button className="primary wide">Sign in</button></form></section></div>
+}
+
+function Reports(){
+  const [data,setData]=useState(null),[days,setDays]=useState(30)
+  useEffect(()=>{api(`/reports/summary?days=${days}`).then(setData)},[days])
+  if(!data)return <Empty text="Loading reports..."/>
+  return <section className="panel"><div className="panel-title"><div><h2>Business Reports</h2><p>Revenue and product performance</p></div><select value={days} onChange={e=>setDays(+e.target.value)}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></div><div className="cards"><Metric icon="₹" title="TOTAL REVENUE" value={money(data.totals.revenue)} color="green"/><Metric icon="↗" title="EST. PROFIT" value={money(data.totals.profit)} color="purple"/><Metric icon="□" title="ORDERS" value={data.totals.orders} color="blue"/></div><h3>Top Products</h3><table><thead><tr><th>PRODUCT</th><th>UNITS SOLD</th><th>REVENUE</th><th>PROFIT</th></tr></thead><tbody>{data.products.map(p=><tr key={p.name}><td><b>{p.name}</b></td><td>{p.units}</td><td>{money(p.units*p.price)}</td><td className="green">+{money(p.profit)}</td></tr>)}</tbody></table></section>
+}
+
+function Forecast(){
+  const [rows,setRows]=useState([])
+  useEffect(()=>{api('/forecast').then(setRows)},[])
+  return <section className="panel"><div className="panel-title"><div><h2>Inventory Forecast</h2><p>AI-driven restocking suggestions based on past 28 days</p></div></div><table><thead><tr><th>PRODUCT</th><th>CURRENT STOCK</th><th>WEEKLY DEMAND</th><th>DAYS COVER</th><th>SUGGESTED ORDER</th></tr></thead><tbody>{rows.map(p=><tr key={p.id}><td><b>{p.name}</b></td><td>{p.stock}</td><td>{p.weeklyDemand}/wk</td><td><span className={p.daysCover<7?'stock-alert':''}>{p.daysCover} days</span></td><td>{p.suggestedOrder>0?<b>Order {p.suggestedOrder}</b>:<span className="badge regular">Optimal</span>}</td></tr>)}</tbody></table>{!rows.length&&<Empty text="Not enough data for forecasting."/>}</section>
+}
+
+function Assistant({close,done,products,customers}){
+  const [msg,setMsg]=useState(''), [res,setRes]=useState(null), [loading,setLoading]=useState(false)
+  const submit = async e => {
+    e.preventDefault(); setLoading(true)
+    try { setRes(await api('/assistant/parse-sale', {method:'POST',body:JSON.stringify({message:msg})})) }
+    catch(err){ alert(err.message) }
+    finally { setLoading(false) }
+  }
+  const confirm = async () => {
+    if(!res?.draft) return
+    const r = await api('/sales', {method:'POST', body:JSON.stringify({customerId:res.draft.customerId, paymentMode:res.draft.paymentMode, paid:res.draft.items.reduce((sum,i)=>sum+i.price*i.quantity,0), items:res.draft.items})})
+    done(r.id)
+  }
+  return <Modal title="Smart Sale Assistant" close={close}><div className="assistant"><p className="help">Type a natural language command like "sold 2 ponni rice and 1 tata salt to ravi via upi"</p><form onSubmit={submit} className="form" style={{display:'flex',gap:10}}><input style={{flex:1}} autoFocus placeholder="Message..." value={msg} onChange={e=>setMsg(e.target.value)}/><button className="primary" disabled={loading||!msg.trim()}>Analyze</button></form>{res&&<div className="assistant-response"><p>{res.message}</p>{res.draft?.items?.length>0&&<div className="draft-sale"><div className="cart">{res.draft.items.map((x,i)=><div className="cart-row" key={i}><span>{x.name}</span><b>{x.quantity} × {money(x.price)}</b></div>)}</div><div className="two"><div className="badge regular">{res.draft.customerName||'Walk-in'}</div><div className="badge green">{res.draft.paymentMode}</div></div><button className="primary wide" style={{marginTop:15}} onClick={confirm}>Confirm & Record Sale</button></div>}</div>}</div></Modal>
+}
+
 createRoot(document.getElementById('root')).render(<App/>)
